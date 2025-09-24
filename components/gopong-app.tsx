@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Trophy, Users, Plus, Calendar, Edit, Trash2 } from "lucide-react"
+import { Trophy, Users, Plus, Calendar, Edit, Trash2, TrendingUp, Flame } from "lucide-react"
 import { AddPlayerDialog } from "./add-player-dialog"
 import { AddMatchDialog } from "./add-match-dialog"
 import { EditPlayerDialog } from "./edit-player-dialog"
@@ -16,6 +16,9 @@ interface Player {
   id: string
   name: string
   points: number
+  elo_rating?: number
+  current_streak?: number
+  max_streak?: number
   created_at: string
 }
 
@@ -43,14 +46,27 @@ export function GoPongApp() {
 
   const fetchData = async () => {
     try {
-      // Obtener jugadores ordenados por puntos
-      const { data: playersData, error: playersError } = await supabase
-        .from("players")
-        .select("*")
-        .order("points", { ascending: false })
-        .order("name")
+      console.log("[v0] Fetching players data...")
 
-      if (playersError) throw playersError
+      // Primero verificar qué columnas existen
+      const { data: playersData, error: playersError } = await supabase.from("players").select("*").order("name")
+
+      if (playersError) {
+        console.log("[v0] Players error:", playersError)
+        throw playersError
+      }
+
+      console.log("[v0] Players data received:", playersData)
+
+      // Ordenar por ELO si existe, sino por puntos
+      const sortedPlayers = playersData || []
+      if (sortedPlayers.length > 0) {
+        if ("elo_rating" in sortedPlayers[0]) {
+          sortedPlayers.sort((a, b) => (b.elo_rating || 1200) - (a.elo_rating || 1200))
+        } else if ("points" in sortedPlayers[0]) {
+          sortedPlayers.sort((a, b) => (b.points || 0) - (a.points || 0))
+        }
+      }
 
       // Obtener partidos con información de jugadores
       const { data: matchesData, error: matchesError } = await supabase
@@ -63,9 +79,14 @@ export function GoPongApp() {
         `)
         .order("created_at", { ascending: false })
 
-      if (matchesError) throw matchesError
+      if (matchesError) {
+        console.log("[v0] Matches error:", matchesError)
+        throw matchesError
+      }
 
-      setPlayers(playersData || [])
+      console.log("[v0] Matches data received:", matchesData)
+
+      setPlayers(sortedPlayers)
       setMatches(matchesData || [])
     } catch (error) {
       console.error("Error fetching data:", error)
@@ -110,6 +131,23 @@ export function GoPongApp() {
       alert("Error al eliminar el partido")
     }
   }
+
+  const getStreakColor = (streak: number) => {
+    if (streak >= 5) return "text-red-600 bg-red-50 border-red-200"
+    if (streak >= 3) return "text-orange-600 bg-orange-50 border-orange-200"
+    if (streak >= 1) return "text-green-600 bg-green-50 border-green-200"
+    return "text-neutral-500 bg-neutral-50 border-neutral-200"
+  }
+
+  const getEloRank = (elo: number) => {
+    if (elo >= 1800) return { rank: "Maestro", color: "text-purple-600 bg-purple-50" }
+    if (elo >= 1600) return { rank: "Experto", color: "text-blue-600 bg-blue-50" }
+    if (elo >= 1400) return { rank: "Avanzado", color: "text-green-600 bg-green-50" }
+    if (elo >= 1200) return { rank: "Intermedio", color: "text-yellow-600 bg-yellow-50" }
+    return { rank: "Principiante", color: "text-neutral-600 bg-neutral-50" }
+  }
+
+  const hasEloSystem = players.length > 0 && players[0].elo_rating !== undefined
 
   if (loading) {
     return (
@@ -161,7 +199,7 @@ export function GoPongApp() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Trophy className="w-5 h-5 text-[#7B63DB]" />
-                Ranking de Jugadores
+                {hasEloSystem ? "Ranking ELO" : "Ranking"}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -171,37 +209,64 @@ export function GoPongApp() {
                 </p>
               ) : (
                 <div className="space-y-3">
-                  {players.map((player, index) => (
-                    <div
-                      key={player.id}
-                      className="flex items-center justify-between p-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-[#7B63DB]/10 text-[#7B63DB] font-bold">
-                          {index + 1}
+                  {players.map((player, index) => {
+                    const rating = player.elo_rating || player.points || 1200
+                    const eloRank = hasEloSystem ? getEloRank(rating) : null
+                    const currentStreak = player.current_streak || 0
+                    const maxStreak = player.max_streak || 0
+
+                    return (
+                      <div
+                        key={player.id}
+                        className="flex items-center justify-between p-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center justify-center w-8 h-8 rounded-full bg-[#7B63DB]/10 text-[#7B63DB] font-bold">
+                            {index + 1}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">{player.name}</h3>
+                              {currentStreak > 0 && (
+                                <div className="flex items-center gap-1">
+                                  <Flame className="w-4 h-4 text-orange-500" />
+                                  <span className="text-sm font-medium text-orange-600">{currentStreak}</span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 mt-1">
+                              {hasEloSystem && eloRank && (
+                                <Badge className={`text-xs px-2 py-0.5 ${eloRank.color} border`}>{eloRank.rank}</Badge>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">{player.name}</h3>
-                          <p className="text-sm text-neutral-500">
-                            Registrado: {new Date(player.created_at).toLocaleDateString()}
-                          </p>
+                        <div className="flex items-center gap-2">
+                          <div className="text-right">
+                            <Badge variant="secondary" className="text-lg px-3 py-1 bg-neutral-100 dark:bg-neutral-700">
+                              {hasEloSystem ? (
+                                <TrendingUp className="w-4 h-4 mr-1" />
+                              ) : (
+                                <Trophy className="w-4 h-4 mr-1" />
+                              )}
+                              {rating}
+                            </Badge>
+                            {hasEloSystem && maxStreak > 0 && (
+                              <div className="text-xs text-neutral-500 mt-1">Mejor racha: {maxStreak}</div>
+                            )}
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setEditingPlayer(player)}
+                            className="text-neutral-600 hover:text-[#7B63DB]"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="secondary" className="text-lg px-3 py-1 bg-neutral-100 dark:bg-neutral-700">
-                          {player.points} pts
-                        </Badge>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setEditingPlayer(player)}
-                          className="text-neutral-600 hover:text-[#7B63DB]"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </CardContent>
