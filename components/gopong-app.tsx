@@ -13,20 +13,25 @@ import { EditPlayerDialog } from "./edit-player-dialog"
 import { EditMatchDialog } from "./edit-match-dialog"
 
 interface Player {
-  id: string
+  id: number
   name: string
-  points: number
+  points?: number
   elo_rating?: number
   current_streak?: number
   max_streak?: number
+  matches_played?: number
+  matches_won?: number
   created_at: string
 }
 
 interface Match {
-  id: string
-  player1_id: string
-  player2_id: string
-  winner_id: string
+  id: number
+  player1_id: number
+  player2_id: number
+  winner_id: number
+  player1_score?: number
+  player2_score?: number
+  elo_change?: number
   created_at: string
   player1: { name: string }
   player2: { name: string }
@@ -119,16 +124,56 @@ export function GoPongApp() {
     setEditingMatch(null)
   }
 
-  const handleDeleteMatch = async (matchId: string) => {
+  const handleDeleteMatch = async (matchId: number) => {
     if (!confirm("¿Estás seguro de que quieres eliminar este partido?")) return
 
     try {
-      const { error } = await supabase.from("matches").delete().eq("id", matchId)
-      if (error) throw error
+      // First delete the match
+      const { error: deleteError } = await supabase.from("matches").delete().eq("id", matchId)
+      if (deleteError) throw deleteError
+
+      // Then recalculate all ELO ratings manually
+      await recalculateAllElo()
+
       fetchData()
     } catch (error) {
       console.error("Error deleting match:", error)
       alert("Error al eliminar el partido")
+    }
+  }
+
+  const recalculateAllElo = async () => {
+    try {
+      // Reset all players to starting values
+      await supabase
+        .from("players")
+        .update({
+          elo_rating: 1200,
+          current_streak: 0,
+          max_streak: 0,
+          matches_played: 0,
+          matches_won: 0,
+        })
+        .neq("id", 0) // Using neq with impossible value to update all rows
+
+      // Get all matches in chronological order
+      const { data: matches, error: matchesError } = await supabase
+        .from("matches")
+        .select("id")
+        .order("created_at", { ascending: true })
+
+      if (matchesError) throw matchesError
+
+      // Process each match to recalculate ELO
+      for (const match of matches || []) {
+        const { error: updateError } = await supabase.rpc("update_match_elo", {
+          match_id: match.id,
+        })
+        if (updateError) throw updateError
+      }
+    } catch (error) {
+      console.error("Error recalculating ELO:", error)
+      throw error
     }
   }
 
