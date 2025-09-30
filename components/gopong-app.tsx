@@ -6,33 +6,29 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Trophy, Users, Plus, Calendar, Edit, Trash2, TrendingUp, Flame } from "lucide-react"
+import { Trophy, Users, Plus, Calendar, Edit, Trash2, Flame } from "lucide-react"
 import { AddPlayerDialog } from "./add-player-dialog"
 import { AddMatchDialog } from "./add-match-dialog"
 import { EditPlayerDialog } from "./edit-player-dialog"
 import { EditMatchDialog } from "./edit-match-dialog"
 
 interface Player {
-  id: number
+  id: string
   name: string
-  points?: number
-  elo_rating?: number
-  current_streak?: number
-  max_streak?: number
-  matches_played?: number
-  matches_won?: number
+  points: number
+  current_streak: number
+  max_streak: number
+  matches_played: number
+  matches_won: number
   created_at: string
 }
 
 interface Match {
-  id: number
-  player1_id: number
-  player2_id: number
-  winner_id: number
-  player1_score?: number
-  player2_score?: number
-  elo_change?: number
-  created_at: string
+  id: string
+  player1_id: string
+  player2_id: string
+  winner_id: string
+  played_at: string
   player1: { name: string }
   player2: { name: string }
   winner: { name: string }
@@ -53,8 +49,10 @@ export function GoPongApp() {
     try {
       console.log("[v0] Fetching players data...")
 
-      // Primero verificar qué columnas existen
-      const { data: playersData, error: playersError } = await supabase.from("players").select("*").order("name")
+      const { data: playersData, error: playersError } = await supabase
+        .from("players")
+        .select("*")
+        .order("points", { ascending: false })
 
       if (playersError) {
         console.log("[v0] Players error:", playersError)
@@ -63,17 +61,6 @@ export function GoPongApp() {
 
       console.log("[v0] Players data received:", playersData)
 
-      // Ordenar por ELO si existe, sino por puntos
-      const sortedPlayers = playersData || []
-      if (sortedPlayers.length > 0) {
-        if ("elo_rating" in sortedPlayers[0]) {
-          sortedPlayers.sort((a, b) => (b.elo_rating || 1200) - (a.elo_rating || 1200))
-        } else if ("points" in sortedPlayers[0]) {
-          sortedPlayers.sort((a, b) => (b.points || 0) - (a.points || 0))
-        }
-      }
-
-      // Obtener partidos con información de jugadores
       const { data: matchesData, error: matchesError } = await supabase
         .from("matches")
         .select(`
@@ -82,7 +69,7 @@ export function GoPongApp() {
           player2:players!matches_player2_id_fkey(name),
           winner:players!matches_winner_id_fkey(name)
         `)
-        .order("created_at", { ascending: false })
+        .order("played_at", { ascending: false })
 
       if (matchesError) {
         console.log("[v0] Matches error:", matchesError)
@@ -91,7 +78,7 @@ export function GoPongApp() {
 
       console.log("[v0] Matches data received:", matchesData)
 
-      setPlayers(sortedPlayers)
+      setPlayers(playersData || [])
       setMatches(matchesData || [])
     } catch (error) {
       console.error("Error fetching data:", error)
@@ -124,56 +111,20 @@ export function GoPongApp() {
     setEditingMatch(null)
   }
 
-  const handleDeleteMatch = async (matchId: number) => {
+  const handleDeleteMatch = async (matchId: string) => {
     if (!confirm("¿Estás seguro de que quieres eliminar este partido?")) return
 
     try {
-      // First delete the match
-      const { error: deleteError } = await supabase.from("matches").delete().eq("id", matchId)
-      if (deleteError) throw deleteError
+      const { error: deleteError } = await supabase.rpc("delete_match_simple", {
+        p_match_id: matchId,
+      })
 
-      // Then recalculate all ELO ratings manually
-      await recalculateAllElo()
+      if (deleteError) throw deleteError
 
       fetchData()
     } catch (error) {
       console.error("Error deleting match:", error)
       alert("Error al eliminar el partido")
-    }
-  }
-
-  const recalculateAllElo = async () => {
-    try {
-      // Reset all players to starting values
-      await supabase
-        .from("players")
-        .update({
-          elo_rating: 1200,
-          current_streak: 0,
-          max_streak: 0,
-          matches_played: 0,
-          matches_won: 0,
-        })
-        .neq("id", 0) // Using neq with impossible value to update all rows
-
-      // Get all matches in chronological order
-      const { data: matches, error: matchesError } = await supabase
-        .from("matches")
-        .select("id")
-        .order("created_at", { ascending: true })
-
-      if (matchesError) throw matchesError
-
-      // Process each match to recalculate ELO
-      for (const match of matches || []) {
-        const { error: updateError } = await supabase.rpc("update_match_elo", {
-          match_id: match.id,
-        })
-        if (updateError) throw updateError
-      }
-    } catch (error) {
-      console.error("Error recalculating ELO:", error)
-      throw error
     }
   }
 
@@ -183,16 +134,6 @@ export function GoPongApp() {
     if (streak >= 1) return "text-green-600 bg-green-50 border-green-200"
     return "text-neutral-500 bg-neutral-50 border-neutral-200"
   }
-
-  const getEloRank = (elo: number) => {
-    if (elo >= 1800) return { rank: "Maestro", color: "text-purple-600 bg-purple-50" }
-    if (elo >= 1600) return { rank: "Experto", color: "text-blue-600 bg-blue-50" }
-    if (elo >= 1400) return { rank: "Avanzado", color: "text-green-600 bg-green-50" }
-    if (elo >= 1200) return { rank: "Intermedio", color: "text-yellow-600 bg-yellow-50" }
-    return { rank: "Principiante", color: "text-neutral-600 bg-neutral-50" }
-  }
-
-  const hasEloSystem = players.length > 0 && players[0].elo_rating !== undefined
 
   if (loading) {
     return (
@@ -204,7 +145,6 @@ export function GoPongApp() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      {/* Botones de acción */}
       <div className="flex gap-4 justify-center">
         <Button onClick={() => setShowAddPlayer(true)} className="bg-[#7B63DB] hover:bg-[#6B53CB] text-white">
           <Users className="w-4 h-4 mr-2" />
@@ -220,7 +160,6 @@ export function GoPongApp() {
         </Button>
       </div>
 
-      {/* Tabs principales */}
       <Tabs defaultValue="ranking" className="w-full">
         <TabsList className="grid w-full grid-cols-2 bg-neutral-100 dark:bg-neutral-800">
           <TabsTrigger
@@ -244,7 +183,7 @@ export function GoPongApp() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Trophy className="w-5 h-5 text-[#7B63DB]" />
-                {hasEloSystem ? "Ranking ELO" : "Ranking"}
+                Ranking
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -255,8 +194,6 @@ export function GoPongApp() {
               ) : (
                 <div className="space-y-3">
                   {players.map((player, index) => {
-                    const rating = player.elo_rating || player.points || 1200
-                    const eloRank = hasEloSystem ? getEloRank(rating) : null
                     const currentStreak = player.current_streak || 0
                     const maxStreak = player.max_streak || 0
 
@@ -279,26 +216,20 @@ export function GoPongApp() {
                                 </div>
                               )}
                             </div>
-                            <div className="flex items-center gap-2 mt-1">
-                              {hasEloSystem && eloRank && (
-                                <Badge className={`text-xs px-2 py-0.5 ${eloRank.color} border`}>{eloRank.rank}</Badge>
-                              )}
-                            </div>
+                            {maxStreak > 0 && (
+                              <div className="text-xs text-neutral-500 mt-1">Mejor racha: {maxStreak}</div>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
                           <div className="text-right">
                             <Badge variant="secondary" className="text-lg px-3 py-1 bg-neutral-100 dark:bg-neutral-700">
-                              {hasEloSystem ? (
-                                <TrendingUp className="w-4 h-4 mr-1" />
-                              ) : (
-                                <Trophy className="w-4 h-4 mr-1" />
-                              )}
-                              {rating}
+                              <Trophy className="w-4 h-4 mr-1" />
+                              {player.points} pts
                             </Badge>
-                            {hasEloSystem && maxStreak > 0 && (
-                              <div className="text-xs text-neutral-500 mt-1">Mejor racha: {maxStreak}</div>
-                            )}
+                            <div className="text-xs text-neutral-500 mt-1">
+                              {player.matches_won}/{player.matches_played} victorias
+                            </div>
                           </div>
                           <Button
                             size="sm"
@@ -355,7 +286,7 @@ export function GoPongApp() {
                             Ganador: {match.winner.name}
                           </Badge>
                           <div className="text-xs text-neutral-500 mt-1">
-                            {new Date(match.created_at).toLocaleString()}
+                            {new Date(match.played_at).toLocaleString()}
                           </div>
                         </div>
                         <div className="flex gap-1">
@@ -386,7 +317,6 @@ export function GoPongApp() {
         </TabsContent>
       </Tabs>
 
-      {/* Diálogos */}
       <AddPlayerDialog
         open={showAddPlayer}
         onOpenChange={setShowAddPlayer}

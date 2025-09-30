@@ -12,12 +12,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { AlertCircle } from "lucide-react"
 
 interface Player {
-  id: number
+  id: string
   name: string
-  points?: number
-  elo_rating?: number
-  current_streak?: number
-  max_streak?: number
+  points: number
+  current_streak: number
+  max_streak: number
   created_at: string
 }
 
@@ -29,9 +28,9 @@ interface AddMatchDialogProps {
 }
 
 export function AddMatchDialog({ open, onOpenChange, onMatchAdded, players }: AddMatchDialogProps) {
-  const [player1Id, setPlayer1Id] = useState<number | null>(null)
-  const [player2Id, setPlayer2Id] = useState<number | null>(null)
-  const [winnerId, setWinnerId] = useState<number | null>(null)
+  const [player1Id, setPlayer1Id] = useState<string | null>(null)
+  const [player2Id, setPlayer2Id] = useState<string | null>(null)
+  const [winnerId, setWinnerId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -61,27 +60,20 @@ export function AddMatchDialog({ open, onOpenChange, onMatchAdded, players }: Ad
     setError(null)
 
     try {
-      const player1Score = winnerId === player1Id ? 1 : 0
-      const player2Score = winnerId === player2Id ? 1 : 0
+      console.log("[v0] Adding match with simple points system")
 
-      console.log("[v0] Inserting match with automatic scores:", { player1Score, player2Score })
+      const { error: addError } = await supabase.rpc("add_match_simple", {
+        p_player1_id: player1Id,
+        p_player2_id: player2Id,
+        p_winner_id: winnerId,
+      })
 
-      const { error: insertError } = await supabase.from("matches").insert([
-        {
-          player1_id: player1Id,
-          player2_id: player2Id,
-          winner_id: winnerId,
-          player1_score: player1Score,
-          player2_score: player2Score,
-        },
-      ])
-
-      if (insertError) {
-        console.log("[v0] Insert error:", insertError)
-        throw insertError
+      if (addError) {
+        console.log("[v0] Add match error:", addError)
+        throw addError
       }
 
-      console.log("[v0] Match inserted successfully")
+      console.log("[v0] Match added successfully")
       resetForm()
       onMatchAdded()
     } catch (error) {
@@ -107,27 +99,24 @@ export function AddMatchDialog({ open, onOpenChange, onMatchAdded, players }: Ad
   }
 
   const handlePlayer1Change = (value: string) => {
-    const playerId = Number.parseInt(value, 10)
-    console.log("[v0] Player 1 selected:", playerId)
-    setPlayer1Id(playerId)
+    console.log("[v0] Player 1 selected:", value)
+    setPlayer1Id(value)
     if (winnerId === player1Id || winnerId === player2Id) {
       setWinnerId(null)
     }
   }
 
   const handlePlayer2Change = (value: string) => {
-    const playerId = Number.parseInt(value, 10)
-    console.log("[v0] Player 2 selected:", playerId)
-    setPlayer2Id(playerId)
+    console.log("[v0] Player 2 selected:", value)
+    setPlayer2Id(value)
     if (winnerId === player1Id || winnerId === player2Id) {
       setWinnerId(null)
     }
   }
 
   const handleWinnerChange = (value: string) => {
-    const playerId = Number.parseInt(value, 10)
-    console.log("[v0] Winner selected:", playerId)
-    setWinnerId(playerId)
+    console.log("[v0] Winner selected:", value)
+    setWinnerId(value)
   }
 
   const availablePlayer2 = players.filter((p) => p.id !== player1Id)
@@ -151,13 +140,13 @@ export function AddMatchDialog({ open, onOpenChange, onMatchAdded, players }: Ad
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="player1">Jugador 1</Label>
-            <Select value={player1Id?.toString() || ""} onValueChange={handlePlayer1Change}>
+            <Select value={player1Id || ""} onValueChange={handlePlayer1Change}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecciona el primer jugador" />
               </SelectTrigger>
               <SelectContent>
                 {players.map((player) => (
-                  <SelectItem key={player.id} value={player.id.toString()}>
+                  <SelectItem key={player.id} value={player.id}>
                     {player.name}
                   </SelectItem>
                 ))}
@@ -167,13 +156,13 @@ export function AddMatchDialog({ open, onOpenChange, onMatchAdded, players }: Ad
 
           <div className="space-y-2">
             <Label htmlFor="player2">Jugador 2</Label>
-            <Select value={player2Id?.toString() || ""} onValueChange={handlePlayer2Change}>
+            <Select value={player2Id || ""} onValueChange={handlePlayer2Change}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecciona el segundo jugador" />
               </SelectTrigger>
               <SelectContent>
                 {availablePlayer2.map((player) => (
-                  <SelectItem key={player.id} value={player.id.toString()}>
+                  <SelectItem key={player.id} value={player.id}>
                     {player.name}
                   </SelectItem>
                 ))}
@@ -183,13 +172,13 @@ export function AddMatchDialog({ open, onOpenChange, onMatchAdded, players }: Ad
 
           <div className="space-y-2">
             <Label htmlFor="winner">Ganador</Label>
-            <Select value={winnerId?.toString() || ""} onValueChange={handleWinnerChange}>
+            <Select value={winnerId || ""} onValueChange={handleWinnerChange}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecciona el ganador" />
               </SelectTrigger>
               <SelectContent>
                 {availableWinners.map((player) => (
-                  <SelectItem key={player.id} value={player.id.toString()}>
+                  <SelectItem key={player.id} value={player.id}>
                     {player.name}
                   </SelectItem>
                 ))}
