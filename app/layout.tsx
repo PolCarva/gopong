@@ -18,9 +18,12 @@ const jetbrainsMono = JetBrains_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "GoPong - Ping Pong Tournament App",
-  description: "Manage ping pong tournaments with ELO ranking system",
+  title: "gopong by gopersonal",
+  description: "Manage ping pong tournaments",
   generator: "v0.app",
+  icons: {
+    icon: "https://www.gopersonal.com/favicon.ico",
+  },
 }
 
 export default function RootLayout({
